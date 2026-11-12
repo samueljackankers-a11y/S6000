@@ -1,0 +1,53 @@
+
+name: Build S6000 Windows VST3
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Download S6000 source
+        uses: actions/checkout@v4
+
+      - name: Download JUCE 8
+        uses: actions/checkout@v4
+        with:
+          repository: juce-framework/JUCE
+          ref: 8.0.17-security
+          path: JUCE
+
+      - name: Configure VST3-only build
+        shell: pwsh
+        run: |
+          $file = "CMakeLists.txt"
+          $content = Get-Content $file -Raw
+          $old = "set (S6000_FORMATS AU VST3 Standalone)"
+          if (-not $content.Contains($old)) {
+            throw "Could not find expected S6000 format declaration."
+          }
+          $content = $content.Replace($old, "set (S6000_FORMATS VST3)")
+          [System.IO.File]::WriteAllText(
+            (Join-Path $PWD $file),
+            $content,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          cmake -S . -B build -A x64 "-DJUCE_DIR=$env:GITHUB_WORKSPACE/JUCE"
+          if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed." }
+
+      - name: Compile VST3
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target S6000_VST3 --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw "Compilation failed." }
+
+      - name: Upload finished VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: S6000-Windows-VST3
+          path: build/S6000_artefacts/Release/VST3/S6000.vst3
+          if-no-files-found: error
+          retention-days: 14
