@@ -1,90 +1,30 @@
+Replace:
 
-name: Build S6000 Windows VST3
+```cmake
+set (S6000_FORMATS AU VST3 Standalone)
+```
 
-on:
-  workflow_dispatch:
+with:
 
-permissions:
-  contents: read
+```cmake
+set (S6000_FORMATS VST3 CACHE STRING "S6000 plugin formats")
 
-jobs:
-  build:
-    runs-on: windows-2022
-    timeout-minutes: 45
+if (AAX_SDK)
+    juce_set_aax_sdk_path (${AAX_SDK})
+    list (APPEND S6000_FORMATS AAX)
+endif()
+```
 
-    steps:
-      - name: Download S6000
-        uses: actions/checkout@v4
+Then remove the PowerShell section in `build-windows.yml` that edits `CMakeLists.txt`.
 
-      - name: Download JUCE 8
-        uses: actions/checkout@v4
-        with:
-          repository: juce-framework/JUCE
-          ref: 8.0.17-security
-          path: JUCE
+Use this configure command instead:
 
-      - name: Check build environment
-        shell: pwsh
-        run: |
-          cmake --version
-          if ($LASTEXITCODE -ne 0) {
-            throw "CMake is unavailable"
-          }
+```powershell
+cmake -S . -B build -A x64 `
+  "-DJUCE_DIR=$env:GITHUB_WORKSPACE/JUCE" `
+  "-DS6000_FORMATS=VST3"
 
-          if (!(Test-Path "JUCE/CMakeLists.txt")) {
-            throw "JUCE download failed"
-          }
-
-      - name: Configure S6000
-        shell: pwsh
-        run: |
-          $file = "CMakeLists.txt"
-          $content = Get-Content $file -Raw
-
-          $content = $content -replace `
-            'set\s*\(S6000_FORMATS\s+AU\s+VST3\s+Standalone\)', `
-            'set (S6000_FORMATS VST3)'
-
-          if ($content -notmatch 'set\s*\(S6000_FORMATS\s+VST3\)') {
-            throw "Could not configure VST3 format"
-          }
-
-          Set-Content $file $content
-
-          cmake -S . -B build -A x64 "-DJUCE_DIR=$env:GITHUB_WORKSPACE/JUCE"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "CMake configuration failed"
-          }
-
-      - name: Build VST3
-        shell: pwsh
-        run: |
-          cmake --build build --config Release --target S6000_VST3 --parallel 4
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "VST3 compilation failed"
-          }
-
-      - name: Find and package plugin
-        shell: pwsh
-        run: |
-          $plugin = Get-ChildItem build -Recurse -Directory |
-            Where-Object { $_.Name -eq "S6000.vst3" } |
-            Select-Object -First 1
-
-          if (!$plugin) {
-            throw "S6000.vst3 was not found"
-          }
-
-          New-Item -ItemType Directory -Force package | Out-Null
-
-          Copy-Item $plugin.FullName package -Recurse
-
-      - name: Upload Windows VST3
-        uses: actions/upload-artifact@v4
-        with:
-          name: S6000-Windows-VST3
-          path: package/S6000.vst3
-          if-no-files-found: error
-          retention-days: 14
+if ($LASTEXITCODE -ne 0) {
+    throw "CMake configuration failed"
+}
+```
